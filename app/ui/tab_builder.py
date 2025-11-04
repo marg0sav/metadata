@@ -71,10 +71,27 @@ class TabBuilder(ttk.Frame):
         bottom = ttk.Panedwindow(self, orient="vertical")
         bottom.pack(fill="both", expand=True, padx=10, pady=8)
 
-        # SQL превью
+        # ---- LIMIT (над превью)
+        frm_limit = ttk.Frame(bottom)
+        bottom.add(frm_limit, weight=0)
+
+        ttk.Label(frm_limit, text="LIMIT:").pack(side="left")  # caps
+
+        # по умолчанию 0
+        self.var_limit = tk.StringVar(value=str(getattr(self.state, "limit", 0) or 0))
+
+        # только цифры
+        vcmd = (self.register(self._validate_limit), "%P")
+        ent_limit = ttk.Entry(frm_limit, width=8, textvariable=self.var_limit,
+                              validate="key", validatecommand=vcmd)
+        ent_limit.pack(side="left", padx=6)
+        # автообновление
+        self.var_limit.trace_add("write", lambda *_: self._update_preview())
+
+        # ---- SQL превью (read-only)
         frm_sql = ttk.Frame(bottom)
         bottom.add(frm_sql, weight=1)
-        self.txt_preview = tk.Text(frm_sql, height=6)
+        self.txt_preview = tk.Text(frm_sql, height=6, state="disabled")  # read-only
         self.txt_preview.pack(fill="both", expand=True)
 
         btns = ttk.Frame(self)
@@ -83,6 +100,21 @@ class TabBuilder(ttk.Frame):
         ttk.Button(btns, text="Save", command=self._save_query).pack(side="left", padx=6)
 
     # --- public ---
+
+    def _validate_limit(self, newval: str) -> bool:
+        """Разрешаем только пусто или число (0..)."""
+        if newval == "":
+            return True
+        return newval.isdigit()
+
+    def _limit_value(self) -> int | None:
+        v = (self.var_limit.get() or "").strip()
+        if v == "":
+            return 0
+        try:
+            return int(v)
+        except ValueError:
+            return 0
 
     def refresh_databases(self):
         """Вызывается, когда в реестре БД появились новые элементы."""
@@ -250,11 +282,16 @@ class TabBuilder(ttk.Frame):
             filters.append({"column": col, "op": op, "value": val})
         self.state.filters = filters
 
+        # LIMIT
+        self.state.limit = self._limit_value()
+
     def _update_preview(self):
         self._collect_state()
         sql = self.state.build_sql()
+        self.txt_preview.configure(state="normal")
         self.txt_preview.delete("1.0", "end")
         self.txt_preview.insert("1.0", sql)
+        self.txt_preview.configure(state="disabled")
 
 
     def _save_query(self):

@@ -4,7 +4,7 @@ class QueryBuilderState:
   self.table = None
   self.selected_columns = {}  # {col_name: {"alias": "", "checked": bool, "checked_var": tkVar?, "alias_var": tkVar?}}
   self.filters = []  # [{"column":..., "op":..., "value":...}]
-  self.limit = 100
+  self.limit: int | None = 0
 
  @staticmethod
  def _quote_ident(ident: str) -> str:
@@ -62,5 +62,11 @@ class QueryBuilderState:
      conds.append(f"{qcol} {op} '{sval}'")
   where_clause = ("WHERE " + " AND ".join(conds)) if conds else ""
 
-  limit_clause = f"LIMIT {int(self.limit) if self.limit else 100}"
-  return "\n".join([select_clause, from_clause, where_clause, limit_clause]).strip()
+  # LIMIT выводим только если > 0
+  parts = [select_clause, from_clause]
+  if where_clause:
+   parts.append(where_clause)
+  if isinstance(self.limit, int) and self.limit > 0:
+   parts.append(f"LIMIT {self.limit}")
+
+  return "\n".join(parts).strip()
