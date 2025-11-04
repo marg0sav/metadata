@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from typing import Callable
@@ -76,8 +77,6 @@ class TabBuilder(ttk.Frame):
         self.txt_preview = tk.Text(frm_sql, height=6)
         self.txt_preview.pack(fill="both", expand=True)
 
-
-
         btns = ttk.Frame(self)
         btns.pack(fill="x", padx=10, pady=(0, 10))
         #ttk.Button(btns, text="Run", command=self._run_query).pack(side="left")
@@ -105,6 +104,7 @@ class TabBuilder(ttk.Frame):
     def _on_table_change(self, _evt=None):
         self.state.table = self.cmb_table.get()
         self._render_select_columns()
+        self._refresh_where_comboboxes()
         self._update_preview()
 
     def _clear_select_where(self):
@@ -119,26 +119,95 @@ class TabBuilder(ttk.Frame):
         for w in self.columns_frame.winfo_children():
             w.destroy()
         self.state.selected_columns.clear()
+
         cols = self.meta_repo.list_columns(self.state.dbname, self.state.table)
         for (col, type_family) in cols:
             row = ttk.Frame(self.columns_frame)
             row.pack(fill="x", pady=2)
+
             var_chk = tk.BooleanVar(value=False)
             var_alias = tk.StringVar(value="")
-            chk = ttk.Checkbutton(row, text=f'{col}  ({type_family})', variable=var_chk,
-                                  command=self._update_preview)
+
+            chk = ttk.Checkbutton(
+                row,
+                text=f'{col}  ({type_family})',
+                variable=var_chk,
+                command=self._on_select_changed,
+            )
             chk.pack(side="left")
+
             ttk.Label(row, text="AS").pack(side="left", padx=(10, 2))
             ent = ttk.Entry(row, width=16, textvariable=var_alias)
             ent.pack(side="left")
+
+            # обновляем превью "на лету" при наборе
+            var_alias.trace_add("write", lambda *_: self._on_alias_changed())
+
+            # валидируем по Enter и по уходу фокуса (и НЕ затираем другие обработчики)
+            ent.bind("<Return>",
+                     lambda e, v=var_alias, w=ent: self._on_alias_commit(v, w),
+                     add="+")
+            ent.bind("<FocusOut>",
+                     lambda e, v=var_alias, w=ent: self._on_alias_commit(v, w, silent=True),
+                     add="+")
+
+            # На случай, если где-то меняется значение переменной без клика по чекбоксу
+            var_chk.trace_add("write", lambda *_: self._on_select_changed())
+
             self.state.selected_columns[col] = {"checked_var": var_chk, "alias_var": var_alias}
+
+        # после первого рендера тоже синхронизируем WHERE
+        self._refresh_where_comboboxes()
+
+    def _is_valid_identifier(self, name: str) -> bool:
+        """
+        Пустая строка допустима (алиас не задан).
+        Иначе: латиница/цифры/_, но начинаться с буквы или _.
+        """
+        if not name:
+            return True
+        return re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', name) is not None
+
+    def _on_alias_commit(self, var: tk.StringVar, entry: ttk.Entry, silent: bool = False):
+        """
+        Вызывается по Enter и по уходу фокуса из поля алиаса.
+        Валидируем; при ошибке показываем messagebox и возвращаем фокус.
+        """
+        alias = (var.get() or "").strip()
+
+        if not self._is_valid_identifier(alias):
+            if not silent:
+                messagebox.showerror(
+                    "Invalid alias",
+                    "Алиас должен быть пустым или соответствовать шаблону:\n"
+                    "• начинаться с буквы или _\n"
+                    "• содержать только буквы, цифры и _"
+                )
+            # вернуть фокус и выделить текст для правки
+            try:
+                entry.focus_set()
+                entry.selection_range(0, 'end')
+            except Exception:
+                pass
+            return "break"  # отменяем обработку Enter дальше
+
+        # всё ок — обновим превью SQL
+        self._update_preview()
+
+    def _on_alias_changed(self):
+        """Алиас изменился — обновим превью (и только его)."""
+        self._update_preview()
 
     def _add_where_row(self):
         row = ttk.Frame(self.where_rows_container)
         row.pack(fill="x", pady=2)
 
-        cols = [c for (c, _t) in self.meta_repo.list_columns(self.state.dbname or "", self.state.table or "")]
-        cmb_col = ttk.Combobox(row, values=cols, state="readonly", width=18)
+        # показываем только отмеченные в SELECT; если их нет — все колонки таблицы
+        selected = self._selected_columns()
+        if not selected:
+            selected = [c for (c, _t) in self.meta_repo.list_columns(self.state.dbname or "", self.state.table or "")]
+
+        cmb_col = ttk.Combobox(row, values=selected, state="readonly", width=18)
         cmb_col.pack(side="left")
 
         ops = ["=", "<>", "<", ">", "<=", ">=", "LIKE", "ILIKE", "IN", "IS NULL", "IS NOT NULL", "BETWEEN"]
@@ -207,3 +276,33 @@ class TabBuilder(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Save error", str(e))
 
+        # --- helpers for WHERE options ---
+
+    def _selected_columns(self) -> list[str]:
+        """Возвращает список колонок, отмеченных в SELECT."""
+        return [
+            name for name, meta in self.state.selected_columns.items()
+            if meta["checked_var"].get()
+        ]
+
+    def _refresh_where_comboboxes(self):
+        """В Combobox'ах WHERE показываем только отмеченные в SELECT (или все, если ничего не отмечено)."""
+        selected = self._selected_columns()
+        if not selected:
+            selected = [c for (c, _t) in self.meta_repo.list_columns(self.state.dbname or "", self.state.table or "")]
+
+        for row in self.where_rows_container.winfo_children():
+            widgets = row.winfo_children()
+            if not widgets:
+                continue
+            cmb_col = widgets[0]
+            if isinstance(cmb_col, ttk.Combobox):
+                cmb_col["values"] = selected
+                # если текущего значения больше нет — очистим
+                if cmb_col.get() and cmb_col.get() not in selected:
+                    cmb_col.set("")
+
+    def _on_select_changed(self):
+        """Реакция на переключение чекбоксов SELECT."""
+        self._update_preview()
+        self._refresh_where_comboboxes()

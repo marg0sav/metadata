@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+
 from app.repositories.meta_repository import MetaRepository
 from app.services.query_service import QueryService
 from app.state.query_builder_state import QueryBuilderState
@@ -80,6 +81,7 @@ class App(tk.Tk):
         self.nb.select(self.tab_builder)
 
     # --- callbacks wiring ---
+
 
     def _on_registry_changed(self):
         """Когда список БД изменился (добавили/удалили) — обновим выпадашку в билдоре."""
