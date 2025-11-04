@@ -57,10 +57,20 @@ class App(tk.Tk):
             dbname = self.tab_builder.state.dbname
             return self.meta_repo.get_database_id(dbname) if dbname else None
 
+        def current_db_choices():
+            # список (id, name) для комбобокса фильтра
+            names = meta_repo.list_databases()
+            return [(meta_repo.get_database_id(n), n) for n in names]
+
+        def db_choices():
+            # [(id, name)] из мета-реестра
+            return self.meta_repo.list_databases_with_ids()
+
         self.tab_lib = TabLibrary(
             parent=self.nb,
-            get_saved=lambda: (self.query_repo.list_saved(current_db_id()) if current_db_id() else []),
-            get_history=lambda: (self.query_repo.list_history(current_db_id()) if current_db_id() else []),
+            get_db_choices=db_choices,
+            get_saved=lambda db_id: query_repo.list_saved(db_id),
+            get_history=lambda db_id: query_repo.list_history(db_id),
             delete_saved=lambda saved_id: self.query_repo.delete_saved(saved_id),
             query_service=self.query_service,
         )

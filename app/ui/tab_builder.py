@@ -67,7 +67,7 @@ class TabBuilder(ttk.Frame):
         where_btns.pack(fill="x", padx=8, pady=(0, 8))
         ttk.Button(where_btns, text="+ Add filter", command=self._add_where_row).pack(side="left")
 
-        bottom = ttk.Frame(self)
+        bottom = ttk.Panedwindow(self, orient="vertical")
         bottom.pack(fill="both", expand=True, padx=10, pady=8)
 
         # SQL превью

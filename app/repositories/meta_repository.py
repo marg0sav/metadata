@@ -232,6 +232,14 @@ class MetaRepository:
             ).fetchall()
         return [r[0] for r in rows]
 
+    def list_databases_with_ids(self) -> List[Tuple[int, str]]:
+        """[(id, name)] всех БД из мета-реестра, отсортированных по имени."""
+        with self.engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT id, name FROM meta_databases ORDER BY name")
+            ).fetchall()
+        return [(int(r[0]), r[1]) for r in rows]
+
     def list_tables(self, dbname: str) -> List[str]:
         """
         Таблицы зарегистрированной БД (имена в формате 'schema.table').

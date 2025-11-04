@@ -1,5 +1,5 @@
 # app/repositories/query_repository.py
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from sqlalchemy import text
 from app.db.connections import get_engine
 
@@ -19,42 +19,49 @@ class QueryRepository:
             ).fetchone()
         return int(row[0])
 
-    def list_saved(self, database_id: int) -> List[Dict[str, Any]]:
+    def list_saved(self, database_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Если database_id=None — вернуть все сохранённые запросы."""
+        where = "WHERE q.database_id = :db" if database_id is not None else ""
+        params = {"db": database_id} if database_id is not None else {}
+        sql = f"""
+            SELECT q.id, q.title, q.sql_text, q.created_at,
+                   d.name AS db_name, q.database_id
+            FROM app.saved_queries q
+            JOIN meta_databases d ON d.id = q.database_id
+            {where}
+            ORDER BY q.created_at DESC
+        """
         with self.engine.connect() as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, title, sql_text, created_at
-                    FROM app.saved_queries
-                    WHERE database_id = :db
-                    ORDER BY created_at DESC
-                """),
-                {"db": database_id},
-            ).mappings().all()
+            rows = conn.execute(text(sql), params).mappings().all()
         return [dict(r) for r in rows]
 
-    def add_history(self, database_id: int, sql_text: str, ok: bool,
-                    duration_ms: int | None, error_text: str | None) -> None:
+    def add_history(self, database_id: int, sql_text: str, ok: bool, duration_ms: int | None,
+                    error_text: str | None, user_id: int | None = None) -> None:
+        # без изменений
         with self.engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO app.run_history (database_id, sql_text, ok, duration_ms, error_text)
-                    VALUES (:db, :s, :ok, :d, :e)
+                    INSERT INTO app.run_history (database_id, user_id, sql_text, ok, duration_ms, error_text)
+                    VALUES (:db, :u, :s, :ok, :d, :e)
                 """),
-                {"db": database_id, "s": sql_text, "ok": ok, "d": duration_ms, "e": error_text},
+                {"db": database_id, "u": user_id, "s": sql_text, "ok": ok, "d": duration_ms, "e": error_text},
             )
 
-    def list_history(self, database_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_history(self, database_id: Optional[int] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Если database_id=None — вся история."""
+        where = "WHERE h.database_id = :db" if database_id is not None else ""
+        params = {"db": database_id, "lim": limit} if database_id is not None else {"lim": limit}
+        sql = f"""
+            SELECT h.id, h.sql_text, h.ok, h.duration_ms, h.error_text, h.created_at,
+                   d.name AS db_name, h.database_id
+            FROM app.run_history h
+            JOIN meta_databases d ON d.id = h.database_id
+            {where}
+            ORDER BY h.created_at DESC
+            LIMIT :lim
+        """
         with self.engine.connect() as conn:
-            rows = conn.execute(
-                text("""
-                    SELECT id, sql_text, ok, duration_ms, error_text, created_at
-                    FROM app.run_history
-                    WHERE database_id = :db
-                    ORDER BY created_at DESC
-                    LIMIT :lim
-                """),
-                {"db": database_id, "lim": limit},
-            ).mappings().all()
+            rows = conn.execute(text(sql), params).mappings().all()
         return [dict(r) for r in rows]
 
     def delete_saved(self, saved_id: int) -> None:
