@@ -9,6 +9,7 @@ class QueryService:
                  query_repo: QueryRepository | None = None):
         self.meta_repo = meta_repo
         self.query_repo = query_repo
+        self.on_logged = None
 
     def run(self, dbname: str, sql: str):
         engine = get_engine(dbname)
@@ -24,13 +25,31 @@ class QueryService:
             ok, err = False, str(e)
         dt = round((time.perf_counter() - t0) * 1000)
 
+        history_entry = None
         if self.meta_repo and self.query_repo:
             try:
                 db_id = self.meta_repo.get_database_id(dbname)
-                self.query_repo.add_history(
+                hist_id = self.query_repo.add_history(
                     database_id=db_id, sql_text=sql, ok=ok, duration_ms=dt, error_text=err
                 )
+                history_entry = {
+                    "id": hist_id,
+                    "database_id": db_id,
+                    "sql_text": sql,
+                    "ok": ok,
+                    "duration_ms": dt,
+                    "error_text": err,
+                }
+            except Exception:
+                pass
+
+        # уведомим UI, чтобы он обновил список истории
+        cb = getattr(self, "on_logged", None)
+        if callable(cb) and history_entry is not None:
+            try:
+                cb(history_entry)
             except Exception:
                 pass
 
         return {"ok": ok, "rows": rows, "columns": cols, "duration_ms": dt, "error": err}
+

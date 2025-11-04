@@ -97,6 +97,10 @@ class TabLibrary(ttk.Frame):
 
         self.refresh_lists()
 
+        # подписываемся на событие логирования истории
+        if hasattr(self.query_service, "on_logged"):
+            self.query_service.on_logged = lambda entry: self.after(0, self.refresh_lists)
+
     # --- public ---
 
     def refresh_lists(self):
@@ -126,7 +130,14 @@ class TabLibrary(ttk.Frame):
                                   values=(created, title, sql_short))
 
     def _refresh_history(self, db_id: Optional[int]):
-        self._history_cache = self.get_history(db_id)
+        self._history_cache = self.get_history(db_id) or []
+
+        # Если репозиторий не сортирует — отсортируем тут по created_at убыв.
+        try:
+            self._history_cache.sort(key=lambda h: h.get("created_at", ""), reverse=True)
+        except Exception:
+            pass
+
         self.list_history.delete(0, "end")
         for h in self._history_cache:
             ok = "✔" if h.get("ok") else "✖"
@@ -134,6 +145,9 @@ class TabLibrary(ttk.Frame):
             created = h.get("created_at", "")
             sql_head = (h.get("sql_text", "") or "")[:60]
             self.list_history.insert("end", f"{ok} {ms} ms • {created} • {sql_head}…")
+
+        # Показать верх (где теперь новые записи)
+        self.list_history.yview_moveto(0)
 
     def _idx(self, listbox: tk.Listbox):
         sel = listbox.curselection()
@@ -181,6 +195,7 @@ class TabLibrary(ttk.Frame):
             return
 
         self._fill_results(res.get("columns", []), res.get("rows", []))
+        self._refresh_history(self._current_db_id())
         messagebox.showinfo("Result", f"Rows: {len(res.get('rows', []))}, duration: {res.get('duration_ms', 0)} ms")
 
     def _fill_results(self, columns, rows):

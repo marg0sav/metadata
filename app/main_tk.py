@@ -71,7 +71,7 @@ class App(tk.Tk):
             parent=self.nb,
             get_db_choices=db_choices,
             get_saved=lambda db_id: query_repo.list_saved(db_id),
-            get_history=lambda db_id: query_repo.list_history(db_id),
+            get_history=lambda db_id: query_repo.list_history(db_id if db_id is not None else None),
             delete_saved=lambda saved_id: self.query_repo.delete_saved(saved_id),
             query_service=self.query_service,
         )

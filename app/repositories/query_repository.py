@@ -35,17 +35,21 @@ class QueryRepository:
             rows = conn.execute(text(sql), params).mappings().all()
         return [dict(r) for r in rows]
 
-    def add_history(self, database_id: int, sql_text: str, ok: bool, duration_ms: int | None,
-                    error_text: str | None, user_id: int | None = None) -> None:
-        # без изменений
+    def add_history(self, database_id: int, sql_text: str, ok: bool, duration_ms: int, error_text: str | None) -> int:
+        sql = text("""
+            INSERT INTO app.run_history (database_id, sql_text, ok, duration_ms, error_text)
+            VALUES (:db_id, :sql_text, :ok, :duration_ms, :error_text)
+            RETURNING id
+        """)
         with self.engine.begin() as conn:
-            conn.execute(
-                text("""
-                    INSERT INTO app.run_history (database_id, user_id, sql_text, ok, duration_ms, error_text)
-                    VALUES (:db, :u, :s, :ok, :d, :e)
-                """),
-                {"db": database_id, "u": user_id, "s": sql_text, "ok": ok, "d": duration_ms, "e": error_text},
-            )
+            rid = conn.execute(sql, {
+                "db_id": database_id,
+                "sql_text": sql_text,
+                "ok": ok,
+                "duration_ms": duration_ms,
+                "error_text": error_text,
+            }).scalar_one()
+            return int(rid)
 
     def list_history(self, database_id: Optional[int] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Если database_id=None — вся история."""
